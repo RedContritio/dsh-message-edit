@@ -1,15 +1,15 @@
 /** Browser controller for one session's Timeline projection and branch mutations. */
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-client-connection/client'
 import type {
-  ClientContext,
-  ConversationSnapshot,
+  SessionSnapshot,
   ISessions,
-  ObservableSnapshot,
   SessionFace,
-  SessionId,
   SessionListState,
-  SnapshotStore,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
+  SessionEventSource,
+} from '@deepseek-ai/dsh-api-session-controller/client'
+import { createSnapshotStore, type ObservableSnapshot, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
   MESSAGE_EDIT_PATH,
   type CascadePolicy,
@@ -82,6 +82,7 @@ function decodeMessage(value: unknown, index: number): EditableMessageBlock {
   const row = objectValue(value, `messages[${String(index)}]`)
   return {
     key: stringValue(row['key'], '消息 key'),
+    chatNodeKey: stringValue(row['chatNodeKey'], '消息 chatNodeKey'),
     turn: numberValue(row['turn'], '消息 turn'),
     eventSeq: numberValue(row['eventSeq'], '消息 eventSeq'),
     blockIndex: numberValue(row['blockIndex'], '消息 blockIndex'),
@@ -175,11 +176,8 @@ async function responseValue(response: Response): Promise<unknown> {
   throw new Error(typeof error === 'string' ? error : `请求失败：HTTP ${String(response.status)}`)
 }
 
-function conversationRevision(snapshot: ConversationSnapshot): string {
-  const turnEnds = [...snapshot.turnEnds.entries()]
-    .map(([turn, seq]) => `${String(turn)}:${String(seq)}`)
-    .join(',')
-  return [snapshot.openState, snapshot.removed, snapshot.hasMore, turnEnds].join('|')
+function conversationRevision(snapshot: SessionSnapshot): string {
+  return [snapshot.openState, snapshot.removed, snapshot.hasMore, snapshot.running].join('|')
 }
 
 function lineageRevision(snapshot: SessionListState, sessionId: SessionId): string {
@@ -223,6 +221,7 @@ export class MessageEditController {
   private readonly ctx: ClientContext
   private readonly sessions: ISessions
   private sessionSource: SessionFace | undefined
+  private eventSource: SessionEventSource | undefined
   private sessionSourceDispose: (() => void) | undefined
   private sessionRevision: string | undefined
   private listRevision = ''
@@ -242,7 +241,7 @@ export class MessageEditController {
     private readonly sessionId: SessionId,
   ) {
     this.ctx = ctx
-    this.sessions = ctx.get('sessions') as unknown as ISessions
+    this.sessions = ctx.sessions
     this.face = {
       hooks: { messageEdit: this.store },
       acquire: () => {
@@ -332,18 +331,26 @@ export class MessageEditController {
   }
 
   private bindSessionSource(): boolean {
-    const source = this.sessions.binding(this.sessionId)?.session
-    if (source === this.sessionSource) return false
+    const binding = this.sessions.binding(this.sessionId)
+    const source = binding?.session
+    if (source === this.sessionSource && binding?.eventSource === this.eventSource) return false
     this.sessionSourceDispose?.()
     this.sessionSource = source
     this.sessionRevision = source === undefined ? undefined : conversationRevision(source.getSnapshot())
-    this.sessionSourceDispose = source?.subscribe(() => {
+    this.eventSource = binding?.eventSource
+    const disposeSession = source?.subscribe(() => {
       if (this.sessionSource !== source) return
       const revision = conversationRevision(source.getSnapshot())
       if (revision === this.sessionRevision) return
       this.sessionRevision = revision
       this.invalidate()
     })
+    const disposeEvents = this.eventSource?.subscribe(() => {
+      const change = this.eventSource?.getSnapshot().change
+      if (change?.kind === 'replace' || change?.kind === 'prepend'
+        || (change?.kind === 'append' && change.entries.some(entry => entry.type === 'event' && entry.event.type === 'turn/end'))) this.invalidate()
+    })
+    this.sessionSourceDispose = () => { disposeSession?.(); disposeEvents?.() }
     return true
   }
 

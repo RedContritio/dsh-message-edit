@@ -1,5 +1,5 @@
 /** Same-origin endpoint owned by the Message Edit host plugin. */
-export const MESSAGE_EDIT_PATH = '/message-edit'
+export const MESSAGE_EDIT_PATH = '/api/message-edit'
 
 /** Timeline sits between Trajectory (10) and Prompt Studio (20). */
 export const MESSAGE_EDIT_VIEW_ORDER = 15
@@ -60,6 +60,8 @@ export type StoredMessageEditVersionEvent = MessageEditVersionEvent | LegacyMess
 
 /** One text-bearing block that the Timeline editor can replace. */
 export interface EditableMessageBlock {
+  /** Exact current DSH Chat node identity; avoids matching rendered prose. */
+  chatNodeKey: string
   key: string
   turn: number
   eventSeq: number

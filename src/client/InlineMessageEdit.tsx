@@ -5,7 +5,7 @@
  * Icons are the official outline-16 SVGs inlined to avoid bundling the
  * primitives package.
  */
-import { useEffect } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import type { EditableMessageBlock } from '../shared.ts'
 import type { MessageEditFace } from './controller.ts'
 import styles from './InlineMessageEdit.module.css'
@@ -202,7 +202,8 @@ export function InlineMessageEdit({
   messages: readonly EditableMessageBlock[]
   edit: MessageEditFace['edit']
   retry: MessageEditFace['retry']
-}): null {
+}): ReactNode {
+  const anchor = useRef<HTMLSpanElement>(null)
   useEffect(() => {
     const cleanups: Array<() => void> = []
     const overlays = createOverlayHost(edit)
@@ -212,7 +213,9 @@ export function InlineMessageEdit({
     let scheduled = false
 
     const sync = (): void => {
-      const actionRows = Array.from(document.querySelectorAll<HTMLElement>('[class*="actions"]'))
+      const scope = anchor.current?.closest('header')?.parentElement
+      if (!scope?.querySelector('[data-chat-flow]')) return
+      const actionRows = Array.from(scope.querySelectorAll<HTMLElement>('[data-chat-flow-key] [class*="actions"]'))
       const claimedEvents = new Set<number>()
       for (const row of actionRows) {
         const marker = row as HTMLElement & {
@@ -223,11 +226,17 @@ export function InlineMessageEdit({
           if (marker.__messageEditEventSeq !== undefined) claimedEvents.add(marker.__messageEditEventSeq)
           continue
         }
-        const text = (row.parentElement?.parentElement?.textContent ?? '').trim()
-        if (text.length === 0) continue
-        const matchingEvents = [...new Set(messages
-          .filter(message => message.text.length > 0 && text.includes(message.text.slice(0, 24)))
-          .map(message => message.eventSeq))]
+        const node = row.closest<HTMLElement>('[data-chat-flow-key]')
+        const key = node?.dataset['chatFlowKey']
+        const kind = node?.dataset['chatFlowKind']
+        let candidates = messages.filter(message => message.chatNodeKey === key)
+        if (kind === 'turn-tail') {
+          const turn = Number(node?.dataset['chatTurn'])
+          const assistant = messages.filter(message => message.turn === turn && message.kind !== 'user')
+          const lastSeq = Math.max(...assistant.map(message => message.eventSeq))
+          candidates = assistant.filter(message => message.eventSeq === lastSeq)
+        }
+        const matchingEvents = [...new Set(candidates.map(message => message.eventSeq))]
         const eventSeq = matchingEvents.find(candidate => !claimedEvents.has(candidate))
         if (eventSeq === undefined) continue
         const blocks = messages.filter(message => message.eventSeq === eventSeq)
@@ -306,5 +315,5 @@ export function InlineMessageEdit({
     }
   }, [messages, edit, retry])
 
-  return null
+  return <span ref={anchor} hidden data-message-edit-anchor="" />
 }
