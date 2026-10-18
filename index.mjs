@@ -7,6 +7,12 @@ const MESSAGE_EDIT_PATH = "/api/message-edit";
 const MESSAGE_EDIT_VIEW_ORDER = 15;
 /** Current durable event schema for structurally paired version effects. */
 const MESSAGE_EDIT_VERSION_SCHEMA = 2;
+/**
+* Durable plugin-record type owned by this plugin. The record stays outside
+* `SessionEventMap` and carries `ignorable: true`, so readers that do not know
+* it skip the record instead of refusing the session.
+*/
+const MESSAGE_EDIT_RECORD_TYPE = "plugin:message-edit/version";
 //#endregion
 //#region src/index.ts
 /** Stable Cordis plugin name. */
@@ -272,9 +278,19 @@ function appendLogSeedEvent(events, type, data) {
 		type,
 		seq: SessionSeq(events.length),
 		time: Date.now(),
-		data,
-		...type === "message-edit/version" ? { ignorable: true } : {}
+		data
 	});
+}
+/** Append this plugin's ignorable v4 record at the child-owned boundary. */
+function appendVersionRecord(events, version) {
+	const record = {
+		type: MESSAGE_EDIT_RECORD_TYPE,
+		seq: SessionSeq(events.length),
+		time: Date.now(),
+		data: version,
+		ignorable: true
+	};
+	events.push(record);
 }
 function appendSurfaceSeedEvent(events, type, data, intent) {
 	const envelope = {
@@ -287,13 +303,22 @@ function appendSurfaceSeedEvent(events, type, data, intent) {
 	};
 	events.push(envelope);
 }
-function appendManualTurn(events, manual) {
+function appendManualTurn(events, manual, options) {
 	const { turn, user, assistant } = manual;
 	appendLogSeedEvent(events, "turn/start", { turn });
 	appendSurfaceSeedEvent(events, "user/message", user, { surfaceOp: "append" });
 	appendLogSeedEvent(events, "step/start", {
 		turn,
 		step: 1
+	});
+	appendLogSeedEvent(events, "request/header", {
+		reason: "resume",
+		header: { config: {
+			provider: options.provider,
+			model: options.model,
+			...options.maxTokens === void 0 ? {} : { maxTokens: options.maxTokens },
+			...options.reasoningEffort === void 0 ? {} : { reasoningEffort: options.reasoningEffort }
+		} }
 	});
 	appendSurfaceSeedEvent(events, "assistant/message", {
 		turn,
@@ -339,17 +364,8 @@ async function createVersionAgent(ctx, source, childId, plan, options) {
 		...agentPreset === void 0 ? {} : { agentPreset }
 	};
 	const events = [...Session.create(childId, prefix, header, inherited).snapshotEvents()];
-	appendLogSeedEvent(events, "message-edit/version", plan.version);
-	appendLogSeedEvent(events, "request/header", {
-		reason: "resume",
-		header: { config: {
-			provider: options.provider,
-			model: options.model,
-			...options.maxTokens === void 0 ? {} : { maxTokens: options.maxTokens },
-			...options.reasoningEffort === void 0 ? {} : { reasoningEffort: options.reasoningEffort }
-		} }
-	});
-	if (plan.manualTurn !== void 0) appendManualTurn(events, plan.manualTurn);
+	appendVersionRecord(events, plan.version);
+	if (plan.manualTurn !== void 0) appendManualTurn(events, plan.manualTurn, options);
 	const prepared = Session.fromRestore(childId, structuredClone(events), header, inherited, "detached");
 	try {
 		const stored = await ctx.sessionPersistence.create(header, { inheritedEventCount: inherited });
@@ -423,15 +439,115 @@ async function runOperation(ctx, operation) {
 		}
 	});
 }
+function isRecord(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isVersionOperation(value) {
+	return value === "edit" || value === "reroll" || value === "retry";
+}
+function isCascadePolicy(value) {
+	return value === "truncate" || value === "preserve";
+}
+function isEditableBlockKind(value) {
+	return value === "user" || value === "assistant.reasoning" || value === "assistant.response";
+}
+function isSafeCount(value) {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+/** Validate one stored forward effect. */
+function decodeEffect(effect, sessionId) {
+	const id = effect["id"];
+	const operation = effect["operation"];
+	const cascade = effect["cascade"];
+	const targetTurn = effect["targetTurn"];
+	const targetEventSeq = effect["targetEventSeq"];
+	const targetBlockIndex = effect["targetBlockIndex"];
+	const blockKind = effect["blockKind"];
+	const before = effect["before"];
+	const after = effect["after"];
+	if (typeof id !== "string" || !isVersionOperation(operation) || !isCascadePolicy(cascade) || !isSafeCount(targetTurn) || !isSafeCount(targetEventSeq) || targetBlockIndex !== void 0 && !isSafeCount(targetBlockIndex) || blockKind !== void 0 && !isEditableBlockKind(blockKind) || before !== void 0 && typeof before !== "string" || after !== void 0 && typeof after !== "string") throw new Error(`会话 ${sessionId} 的版本效果字段无效。`);
+	return {
+		id,
+		operation,
+		cascade,
+		targetTurn,
+		targetEventSeq,
+		...targetBlockIndex === void 0 ? {} : { targetBlockIndex },
+		...blockKind === void 0 ? {} : { blockKind },
+		...before === void 0 ? {} : { before },
+		...after === void 0 ? {} : { after }
+	};
+}
+/**
+* Validate one stored version payload. The record boundary is a durable file
+* boundary, so a restored record is untrusted even though this plugin wrote
+* the live one.
+*/
+function decodeStoredVersionEvent(data, sessionId) {
+	if (!isRecord(data)) throw new Error(`会话 ${sessionId} 的版本记录不是对象。`);
+	if (data["schemaVersion"] !== void 0) {
+		const effect = data["effect"];
+		const inverse = data["inverse"];
+		if (data["schemaVersion"] !== 2 || !isRecord(effect) || !isRecord(inverse)) throw new Error(`会话 ${sessionId} 使用不支持的版本效果结构。`);
+		const inverseSessionId = inverse["sessionId"];
+		if (inverse["kind"] !== "restore-version" || typeof inverseSessionId !== "string") throw new Error(`会话 ${sessionId} 的版本逆字段无效。`);
+		return {
+			schemaVersion: 2,
+			effect: decodeEffect(effect, sessionId),
+			inverse: {
+				kind: "restore-version",
+				sessionId: inverseSessionId
+			}
+		};
+	}
+	const sourceSessionId = data["sourceSessionId"];
+	const operation = data["operation"];
+	const cascade = data["cascade"];
+	const targetTurn = data["targetTurn"];
+	const targetEventSeq = data["targetEventSeq"];
+	const targetBlockIndex = data["targetBlockIndex"];
+	const blockKind = data["blockKind"];
+	const before = data["before"];
+	const after = data["after"];
+	if (typeof sourceSessionId !== "string" || !isVersionOperation(operation) || !isCascadePolicy(cascade) || !isSafeCount(targetTurn) || !isSafeCount(targetEventSeq) || targetBlockIndex !== void 0 && !isSafeCount(targetBlockIndex) || blockKind !== void 0 && !isEditableBlockKind(blockKind) || before !== void 0 && typeof before !== "string" || after !== void 0 && typeof after !== "string") throw new Error(`会话 ${sessionId} 的旧版版本记录字段无效。`);
+	return {
+		sourceSessionId,
+		operation,
+		cascade,
+		targetTurn,
+		targetEventSeq,
+		...targetBlockIndex === void 0 ? {} : { targetBlockIndex },
+		...blockKind === void 0 ? {} : { blockKind },
+		...before === void 0 ? {} : { before },
+		...after === void 0 ? {} : { after }
+	};
+}
+/** Read this plugin's ignorable record from one committed event. */
+function messageEditRecordOf(event) {
+	const type = event.type;
+	if (event.ignorable !== true || type !== "plugin:message-edit/version") return void 0;
+	return {
+		data: event.data,
+		seq: event.seq,
+		time: event.time
+	};
+}
+/** Read this Session's own version record from its fork-inherited boundary. */
 function ownVersionEvent(header, events, inherited) {
-	const ownEvents = events.filter((event) => event.type === "message-edit/version" && event.seq >= inherited);
+	const ownEvents = [];
+	for (const event of events) {
+		if (event.seq < inherited) continue;
+		const record = messageEditRecordOf(event);
+		if (record === void 0) continue;
+		ownEvents.push(record);
+	}
 	if (ownEvents.length === 0) return void 0;
 	if (ownEvents.length > 1) throw new Error(`会话 ${header.id} 包含多个自身版本效果。`);
 	const event = ownEvents[0];
 	if (event === void 0) return void 0;
+	const version = decodeStoredVersionEvent(event.data, header.id);
 	const parent = header.parentSession;
-	if ("schemaVersion" in event.data) {
-		const version = event.data;
+	if ("schemaVersion" in version) {
 		if (version.schemaVersion !== 2) throw new Error(`会话 ${header.id} 使用不支持的版本效果结构。`);
 		if (version.inverse.kind !== "restore-version" || parent === void 0 || version.inverse.sessionId !== parent) throw new Error(`会话 ${header.id} 的版本效果与逆不匹配。`);
 		return {
@@ -440,7 +556,7 @@ function ownVersionEvent(header, events, inherited) {
 			time: event.time
 		};
 	}
-	const legacy = event.data;
+	const legacy = version;
 	if (parent === void 0 || legacy.sourceSessionId !== parent) throw new Error(`会话 ${header.id} 的旧版恢复目标与父版本不匹配。`);
 	return {
 		effect: {

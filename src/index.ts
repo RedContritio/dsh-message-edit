@@ -1,7 +1,7 @@
 /** Host half of Message Edit: turn-atomic forks and structurally reversible versions. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent, AgentHandle, AgentOptions, AgentSetup } from '@deepseek-ai/dsh-agent'
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import { Session, SessionSeq, SessionLogOffset, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
@@ -26,6 +26,7 @@ import type {
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
 import {
   MESSAGE_EDIT_PATH,
+  MESSAGE_EDIT_RECORD_TYPE,
   MESSAGE_EDIT_VERSION_SCHEMA,
   type CascadePolicy,
   type EditOperation,
@@ -66,9 +67,9 @@ export type {
 } from './shared.ts'
 
 declare module '@deepseek-ai/dsh-session' {
-  interface SessionEventMap {
-    /** Durable branch provenance owned by moeblack/message-edit. */
-    'message-edit/version': StoredMessageEditVersionEvent
+  interface PluginRecordMap {
+    /** Durable branch provenance owned by this plugin. */
+    'plugin:message-edit/version': StoredMessageEditVersionEvent
   }
 }
 
@@ -139,7 +140,7 @@ function userText(message: UserMessage): string {
     .join('\n')
 }
 
-function cloneUser(message: UserMessage, content: ContentBlock[] = structuredClone(message.content)): UserMessage {
+function cloneUser(message: UserMessage, content: readonly ContentBlock[] = structuredClone(message.content)): UserMessage {
   return createUserMessage({ content, source: { kind: 'user' } })
 }
 
@@ -415,9 +416,19 @@ function appendLogSeedEvent<T extends Exclude<SessionEventType, SurfaceEventType
   type: T,
   data: SessionEvent<T>['data'],
 ): void {
-  events.push({ type, seq: SessionSeq(events.length), time: Date.now(), data,
-    ...type === 'message-edit/version' ? { ignorable: true as const } : {},
-  } as SessionEvent<T>)
+  events.push({ type, seq: SessionSeq(events.length), time: Date.now(), data } as SessionEvent<T>)
+}
+
+/** Append this plugin's ignorable v4 record at the child-owned boundary. */
+function appendVersionRecord(events: SessionEvent[], version: MessageEditVersionEvent): void {
+  const record = {
+    type: MESSAGE_EDIT_RECORD_TYPE,
+    seq: SessionSeq(events.length),
+    time: Date.now(),
+    data: version,
+    ignorable: true as const,
+  }
+  events.push(record as unknown as SessionEvent)
 }
 
 function appendSurfaceSeedEvent<T extends SurfaceEventType>(
@@ -438,11 +449,21 @@ function appendSurfaceSeedEvent<T extends SurfaceEventType>(
   events.push(envelope as unknown as SessionEvent<T>)
 }
 
-function appendManualTurn(events: SessionEvent[], manual: ManualAssistantTurn): void {
+function appendManualTurn(
+  events: SessionEvent[],
+  manual: ManualAssistantTurn,
+  options: AgentOptions,
+): void {
   const { turn, user, assistant } = manual
   appendLogSeedEvent(events, 'turn/start', { turn })
   appendSurfaceSeedEvent(events, 'user/message', user, { surfaceOp: 'append' })
   appendLogSeedEvent(events, 'step/start', { turn, step: 1 })
+  // Keep the manual turn's model route inside its open step for cold resume.
+  appendLogSeedEvent(events, 'request/header', { reason: 'resume', header: { config: {
+    provider: options.provider!, model: options.model!,
+    ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+    ...options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort },
+  } } })
   appendSurfaceSeedEvent(events, 'assistant/message', { turn, step: 1, message: assistant, stream: [] }, {
     surfaceOp: 'append',
   })
@@ -495,14 +516,8 @@ async function createVersionAgent(
   // our own suffix must be validated as a restored log before Agent creation.
   const detached = Session.create(childId, prefix, header, inherited)
   const events = [...detached.snapshotEvents()]
-  appendLogSeedEvent(events, 'message-edit/version', plan.version)
-  // Preserve the route even for a first-turn manual edit with no later run.
-  appendLogSeedEvent(events, 'request/header', { reason: 'resume', header: { config: {
-    provider: options.provider!, model: options.model!,
-    ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
-    ...options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort },
-  } } })
-  if (plan.manualTurn !== undefined) appendManualTurn(events, plan.manualTurn)
+  appendVersionRecord(events, plan.version)
+  if (plan.manualTurn !== undefined) appendManualTurn(events, plan.manualTurn, options)
   const prepared = Session.fromRestore(childId, structuredClone(events), header, inherited, 'detached')
   try {
     const stored = await ctx.sessionPersistence.create(header, { inheritedEventCount: inherited })
@@ -581,23 +596,159 @@ async function runOperation(ctx: Context, operation: MessageEditOperation): Prom
   })
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isVersionOperation(value: unknown): value is MessageEditEffect['operation'] {
+  return value === 'edit' || value === 'reroll' || value === 'retry'
+}
+
+function isCascadePolicy(value: unknown): value is CascadePolicy {
+  return value === 'truncate' || value === 'preserve'
+}
+
+function isEditableBlockKind(value: unknown): value is EditableBlockKind {
+  return value === 'user' || value === 'assistant.reasoning' || value === 'assistant.response'
+}
+
+function isSafeCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+/** Validate one stored forward effect. */
+function decodeEffect(
+  effect: Record<string, unknown>,
+  sessionId: SessionRecord['header']['id'],
+): MessageEditEffect {
+  const id = effect['id']
+  const operation = effect['operation']
+  const cascade = effect['cascade']
+  const targetTurn = effect['targetTurn']
+  const targetEventSeq = effect['targetEventSeq']
+  const targetBlockIndex = effect['targetBlockIndex']
+  const blockKind = effect['blockKind']
+  const before = effect['before']
+  const after = effect['after']
+  if (typeof id !== 'string'
+    || !isVersionOperation(operation)
+    || !isCascadePolicy(cascade)
+    || !isSafeCount(targetTurn)
+    || !isSafeCount(targetEventSeq)
+    || (targetBlockIndex !== undefined && !isSafeCount(targetBlockIndex))
+    || (blockKind !== undefined && !isEditableBlockKind(blockKind))
+    || (before !== undefined && typeof before !== 'string')
+    || (after !== undefined && typeof after !== 'string')) {
+    throw new Error(`会话 ${sessionId} 的版本效果字段无效。`)
+  }
+  return {
+    id,
+    operation,
+    cascade,
+    targetTurn,
+    targetEventSeq,
+    ...targetBlockIndex === undefined ? {} : { targetBlockIndex },
+    ...blockKind === undefined ? {} : { blockKind },
+    ...before === undefined ? {} : { before },
+    ...after === undefined ? {} : { after },
+  }
+}
+
+/**
+ * Validate one stored version payload. The record boundary is a durable file
+ * boundary, so a restored record is untrusted even though this plugin wrote
+ * the live one.
+ */
+function decodeStoredVersionEvent(
+  data: unknown,
+  sessionId: SessionRecord['header']['id'],
+): StoredMessageEditVersionEvent {
+  if (!isRecord(data)) throw new Error(`会话 ${sessionId} 的版本记录不是对象。`)
+  if (data['schemaVersion'] !== undefined) {
+    const effect = data['effect']
+    const inverse = data['inverse']
+    if (data['schemaVersion'] !== MESSAGE_EDIT_VERSION_SCHEMA
+      || !isRecord(effect)
+      || !isRecord(inverse)) {
+      throw new Error(`会话 ${sessionId} 使用不支持的版本效果结构。`)
+    }
+    const inverseSessionId = inverse['sessionId']
+    if (inverse['kind'] !== 'restore-version' || typeof inverseSessionId !== 'string') {
+      throw new Error(`会话 ${sessionId} 的版本逆字段无效。`)
+    }
+    return {
+      schemaVersion: MESSAGE_EDIT_VERSION_SCHEMA,
+      effect: decodeEffect(effect, sessionId),
+      inverse: { kind: 'restore-version', sessionId: inverseSessionId },
+    }
+  }
+
+  const sourceSessionId = data['sourceSessionId']
+  const operation = data['operation']
+  const cascade = data['cascade']
+  const targetTurn = data['targetTurn']
+  const targetEventSeq = data['targetEventSeq']
+  const targetBlockIndex = data['targetBlockIndex']
+  const blockKind = data['blockKind']
+  const before = data['before']
+  const after = data['after']
+  if (typeof sourceSessionId !== 'string'
+    || !isVersionOperation(operation)
+    || !isCascadePolicy(cascade)
+    || !isSafeCount(targetTurn)
+    || !isSafeCount(targetEventSeq)
+    || (targetBlockIndex !== undefined && !isSafeCount(targetBlockIndex))
+    || (blockKind !== undefined && !isEditableBlockKind(blockKind))
+    || (before !== undefined && typeof before !== 'string')
+    || (after !== undefined && typeof after !== 'string')) {
+    throw new Error(`会话 ${sessionId} 的旧版版本记录字段无效。`)
+  }
+  return {
+    sourceSessionId,
+    operation,
+    cascade,
+    targetTurn,
+    targetEventSeq,
+    ...targetBlockIndex === undefined ? {} : { targetBlockIndex },
+    ...blockKind === undefined ? {} : { blockKind },
+    ...before === undefined ? {} : { before },
+    ...after === undefined ? {} : { after },
+  }
+}
+
+/** Read this plugin's ignorable record from one committed event. */
+function messageEditRecordOf(event: SessionEvent): {
+  data: unknown
+  seq: SessionSeq
+  time: number
+} | undefined {
+  const type: string = event.type
+  if (event.ignorable !== true || type !== MESSAGE_EDIT_RECORD_TYPE) return undefined
+  return { data: event.data, seq: event.seq, time: event.time }
+}
+
+/** Read this Session's own version record from its fork-inherited boundary. */
 function ownVersionEvent(
   header: SessionRecord['header'],
   events: readonly SessionEvent[],
   inherited: number,
 ): VersionProjection | undefined {
-  const ownEvents = events.filter((event): event is SessionEvent<'message-edit/version'> => (
-    event.type === 'message-edit/version' && event.seq >= inherited
-  ))
+  const ownEvents: Array<{ data: unknown; seq: SessionSeq; time: number }> = []
+  for (const event of events) {
+    if (event.seq < inherited) continue
+    const record = messageEditRecordOf(event)
+    if (record === undefined) continue
+    ownEvents.push(record)
+  }
   if (ownEvents.length === 0) return undefined
   if (ownEvents.length > 1) {
     throw new Error(`会话 ${header.id} 包含多个自身版本效果。`)
   }
   const event = ownEvents[0]
   if (event === undefined) return undefined
+  const version = decodeStoredVersionEvent(event.data, header.id)
   const parent = header.parentSession
-  if ('schemaVersion' in event.data) {
-    const version = event.data
+  if ('schemaVersion' in version) {
     if (version.schemaVersion !== MESSAGE_EDIT_VERSION_SCHEMA) {
       throw new Error(`会话 ${header.id} 使用不支持的版本效果结构。`)
     }
@@ -609,7 +760,7 @@ function ownVersionEvent(
     return { effect: version.effect, inverseSessionId: version.inverse.sessionId, time: event.time }
   }
 
-  const legacy: LegacyMessageEditVersionEvent = event.data
+  const legacy: LegacyMessageEditVersionEvent = version
   if (parent === undefined || legacy.sourceSessionId !== parent) {
     throw new Error(`会话 ${header.id} 的旧版恢复目标与父版本不匹配。`)
   }

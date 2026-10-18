@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { createUserMessage, createAssistantMessage } from '@deepseek-ai/dsh-llm'
-import JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
 import { apply, MESSAGE_EDIT_PATH } from '../index.mjs'
 
@@ -31,7 +31,10 @@ async function fixture(t) {
     assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + '\\') || resolve(directory).startsWith(resolve(tmpdir()) + '/'))
     await rm(directory, { recursive: true, force: true })
   })
-  const persistence = new JsonlPersistence(new Context(), { root: directory, compression: 'none' })
+  const persistenceCtx = new Context()
+  const persistenceFiber = await persistenceCtx.plugin(JsonlPersistence, { root: directory, compression: 'none' })
+  t.after(async () => { await persistenceFiber.dispose() })
+  const persistence = persistenceCtx.sessionPersistence
   const source = Session.create(SessionId('source'))
   turn(source, 1, 'same text')
   turn(source, 2, 'same text')
@@ -41,7 +44,10 @@ async function fixture(t) {
   const queue = []
   let failResume = false
   let route
-  const connection = new HostConnectionService(new Context(), [], { isAuthenticated: () => true })
+  const connection = new HostConnectionService(new Context(), [], {
+    isAuthenticated: () => true,
+    authenticateApi: () => undefined,
+  })
   const transport = connection.createSharedFetchHandler('/api')
   const options = { provider: 'test', model: 'model', reasoningEffort: 'high', maxTokens: 1234 }
   const sourceAgent = { session: source, options, runMaintenance: fn => fn() }
@@ -102,11 +108,11 @@ async function fixture(t) {
   assert.deepEqual(route.methods, ['GET', 'POST'])
   assert.equal(route.requestBody, 'buffered')
   const request = async (operation) => {
-    const response = await transport.fetch(new Request('http://localhost/api/message-edit', { method: 'POST', body: JSON.stringify(operation) }))
+    const response = await transport.fetch(new Request('http://localhost/api/message-edit', { method: 'POST', body: JSON.stringify(operation) }), connection.browserPeer)
     return { status: response.status, data: await response.json() }
   }
   const timeline = async id => {
-    const response = await transport.fetch(new Request(`http://localhost/api/message-edit?sessionId=${id}`))
+    const response = await transport.fetch(new Request(`http://localhost/api/message-edit?sessionId=${id}`), connection.browserPeer)
     const data = await response.json()
     assert.equal(response.status, 200, JSON.stringify(data))
     return data
@@ -114,7 +120,7 @@ async function fixture(t) {
   return { directory, source, live, queue, resumes, request, timeline, read, persistence, failResume: () => { failResume = true } }
 }
 
-test('manual assistant edit persists a valid v3 branch and keeps the original immutable', async t => {
+test('manual assistant edit persists a valid v4 branch and keeps the original immutable', async t => {
   const f = await fixture(t)
   const before = JSON.stringify(f.source.snapshotEvents())
   const target = (await f.timeline('source')).messages.find(row => row.turn === 1 && row.kind === 'assistant.response')
@@ -125,7 +131,7 @@ test('manual assistant edit persists a valid v3 branch and keeps the original im
   assert.equal(f.resumes[0].agentOptions.reasoningEffort, 'high')
   f.live.delete(result.data.sessionId)
   const cold = await f.read(result.data.sessionId)
-  const version = cold.events.find(event => event.type === 'message-edit/version')
+  const version = cold.events.find(event => event.type === 'plugin:message-edit/version')
   assert.equal(version.ignorable, true)
   assert.equal(version.seq > cold.inheritedEventCount, true)
   assert.equal(cold.session.isSeeded, true)
@@ -162,7 +168,7 @@ test('failed Agent resume reports a durable recoverable branch id', async t => {
   const id = f.resumes[0].resumeSessionId
   assert.ok(result.data.error.includes(id))
   const log = await f.read(id)
-  assert.ok(log.events.some(event => event.type === 'message-edit/version'))
+  assert.ok(log.events.some(event => event.type === 'plugin:message-edit/version'))
 })
 
 test('invalid edits and open-tail retries leave no stored branches', async t => {

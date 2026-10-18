@@ -2,6 +2,7 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {
   SessionSnapshot,
   ISessions,
@@ -282,6 +283,12 @@ export class MessageEditController {
     if (this.users <= 0) this.dispose()
   }
 
+  /** Tear down regardless of mounted entries; called when the plugin unloads. */
+  shutdown(): void {
+    this.users = 0
+    this.dispose()
+  }
+
   /** Tear subscriptions down once no mounted entry uses this controller. */
   private dispose(): void {
     if (this.disposed) return
@@ -465,7 +472,7 @@ export class MessageEditController {
   /** Session-list publication is the reactive dependency for navigation. */
   private openWhenListed(sessionId: SessionId): Promise<void> {
     if (this.sessions.list.getSnapshot().byId[sessionId] !== undefined) {
-      this.sessions.open(sessionId)
+      this.ctx.uiWorkspace.openSession(sessionId)
       return Promise.resolve()
     }
     return new Promise((resolve) => {
@@ -476,7 +483,7 @@ export class MessageEditController {
         settled = true
         dispose()
         this.navigationWaits.delete(cancel)
-        if (open) this.sessions.open(sessionId)
+        if (open) this.ctx.uiWorkspace.openSession(sessionId)
         resolve()
       }
       const cancel = (): void => { finish(false) }

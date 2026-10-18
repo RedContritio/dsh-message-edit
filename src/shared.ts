@@ -16,6 +16,13 @@ export type EditableBlockKind = 'user' | 'assistant.reasoning' | 'assistant.resp
 /** Current durable event schema for structurally paired version effects. */
 export const MESSAGE_EDIT_VERSION_SCHEMA = 2
 
+/**
+ * Durable plugin-record type owned by this plugin. The record stays outside
+ * `SessionEventMap` and carries `ignorable: true`, so readers that do not know
+ * it skip the record instead of refusing the session.
+ */
+export const MESSAGE_EDIT_RECORD_TYPE = 'plugin:message-edit/version' as const
+
 /** Forward half of one atomic version effect. */
 export interface MessageEditEffect {
   id: string

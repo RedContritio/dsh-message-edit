@@ -222,6 +222,11 @@ window.__ModuleLoader__.load({
 				this.users -= 1;
 				if (this.users <= 0) this.dispose();
 			}
+			/** Tear down regardless of mounted entries; called when the plugin unloads. */
+			shutdown() {
+				this.users = 0;
+				this.dispose();
+			}
 			/** Tear subscriptions down once no mounted entry uses this controller. */
 			dispose() {
 				if (this.disposed) return;
@@ -397,7 +402,7 @@ window.__ModuleLoader__.load({
 			/** Session-list publication is the reactive dependency for navigation. */
 			openWhenListed(sessionId) {
 				if (this.sessions.list.getSnapshot().byId[sessionId] !== void 0) {
-					this.sessions.open(sessionId);
+					this.ctx.uiWorkspace.openSession(sessionId);
 					return Promise.resolve();
 				}
 				return new Promise((resolve) => {
@@ -408,7 +413,7 @@ window.__ModuleLoader__.load({
 						settled = true;
 						dispose();
 						this.navigationWaits.delete(cancel);
-						if (open) this.sessions.open(sessionId);
+						if (open) this.ctx.uiWorkspace.openSession(sessionId);
 						resolve();
 					};
 					const cancel = () => {
@@ -435,14 +440,14 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var InlineMessageEdit_module_css_default = {
-			"input": "nkgUNq_input",
-			"picker": "nkgUNq_picker",
-			"pickerItemActive": "nkgUNq_pickerItemActive",
-			"overlay": "nkgUNq_overlay",
-			"pickerItem": "nkgUNq_pickerItem",
-			"iconButton": "nkgUNq_iconButton",
-			"footer": "nkgUNq_footer",
 			"title": "nkgUNq_title",
+			"overlay": "nkgUNq_overlay",
+			"input": "nkgUNq_input",
+			"footer": "nkgUNq_footer",
+			"pickerItemActive": "nkgUNq_pickerItemActive",
+			"iconButton": "nkgUNq_iconButton",
+			"picker": "nkgUNq_picker",
+			"pickerItem": "nkgUNq_pickerItem",
 			"panel": "nkgUNq_panel"
 		};
 		//#endregion
@@ -751,10 +756,10 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditHeader_module_css_default = {
-			"iconButton": "aqxRVa_iconButton",
-			"counter": "aqxRVa_counter",
 			"root": "aqxRVa_root",
-			"rerollButton": "aqxRVa_rerollButton"
+			"iconButton": "aqxRVa_iconButton",
+			"rerollButton": "aqxRVa_rerollButton",
+			"counter": "aqxRVa_counter"
 		};
 		//#endregion
 		//#region src/client/MessageEditHeader.tsx
@@ -829,55 +834,55 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"headerActions": "ccVB3q_headerActions",
-			"subtitle": "ccVB3q_subtitle",
-			"select": "ccVB3q_select",
-			"versionList": "ccVB3q_versionList",
-			"versionTitle": "ccVB3q_versionTitle",
-			"empty": "ccVB3q_empty",
-			"versionDot": "ccVB3q_versionDot",
-			"turnSection": "ccVB3q_turnSection",
-			"primaryButton": "ccVB3q_primaryButton",
-			"cascadeField": "ccVB3q_cascadeField",
-			"secondaryButton": "ccVB3q_secondaryButton",
-			"versionButton": "ccVB3q_versionButton",
-			"versionsPanel": "ccVB3q_versionsPanel",
-			"messageText": "ccVB3q_messageText",
 			"intro": "ccVB3q_intro",
 			"status": "ccVB3q_status",
-			"turnPreview": "ccVB3q_turnPreview",
-			"textButton": "ccVB3q_textButton",
+			"versionDot": "ccVB3q_versionDot",
 			"effectDepth": "ccVB3q_effectDepth",
-			"versionLine": "ccVB3q_versionLine",
-			"versionMeta": "ccVB3q_versionMeta",
-			"versionMain": "ccVB3q_versionMain",
-			"currentBadge": "ccVB3q_currentBadge",
-			"turnHeader": "ccVB3q_turnHeader",
-			"sectionHeading": "ccVB3q_sectionHeading",
-			"editor": "ccVB3q_editor",
-			"editorHint": "ccVB3q_editorHint",
-			"error": "ccVB3q_error",
+			"versionTitle": "ccVB3q_versionTitle",
 			"messageTime": "ccVB3q_messageTime",
-			"root": "ccVB3q_root",
+			"primaryButton": "ccVB3q_primaryButton",
 			"pathBadge": "ccVB3q_pathBadge",
-			"messageList": "ccVB3q_messageList",
-			"kindBadge": "ccVB3q_kindBadge",
-			"textarea": "ccVB3q_textarea",
-			"versionItem": "ccVB3q_versionItem",
-			"editorActions": "ccVB3q_editorActions",
-			"messageHeader": "ccVB3q_messageHeader",
-			"pageHeader": "ccVB3q_pageHeader",
-			"turnsPanel": "ccVB3q_turnsPanel",
-			"effectControls": "ccVB3q_effectControls",
-			"turnTitle": "ccVB3q_turnTitle",
-			"title": "ccVB3q_title",
-			"count": "ccVB3q_count",
+			"editor": "ccVB3q_editor",
+			"turnSection": "ccVB3q_turnSection",
+			"turnHeader": "ccVB3q_turnHeader",
 			"effectButtons": "ccVB3q_effectButtons",
-			"versionDiff": "ccVB3q_versionDiff",
+			"versionsPanel": "ccVB3q_versionsPanel",
+			"select": "ccVB3q_select",
+			"versionMeta": "ccVB3q_versionMeta",
+			"editorHint": "ccVB3q_editorHint",
+			"textarea": "ccVB3q_textarea",
 			"columns": "ccVB3q_columns",
-			"messageCard": "ccVB3q_messageCard",
+			"count": "ccVB3q_count",
+			"versionItem": "ccVB3q_versionItem",
+			"pageHeader": "ccVB3q_pageHeader",
+			"kindBadge": "ccVB3q_kindBadge",
+			"messageHeader": "ccVB3q_messageHeader",
+			"empty": "ccVB3q_empty",
+			"headerActions": "ccVB3q_headerActions",
+			"editorActions": "ccVB3q_editorActions",
+			"root": "ccVB3q_root",
+			"versionLine": "ccVB3q_versionLine",
+			"messageText": "ccVB3q_messageText",
+			"title": "ccVB3q_title",
 			"turnList": "ccVB3q_turnList",
-			"notice": "ccVB3q_notice"
+			"secondaryButton": "ccVB3q_secondaryButton",
+			"effectControls": "ccVB3q_effectControls",
+			"cascadeField": "ccVB3q_cascadeField",
+			"textButton": "ccVB3q_textButton",
+			"versionMain": "ccVB3q_versionMain",
+			"messageCard": "ccVB3q_messageCard",
+			"currentBadge": "ccVB3q_currentBadge",
+			"versionButton": "ccVB3q_versionButton",
+			"turnsPanel": "ccVB3q_turnsPanel",
+			"versionDiff": "ccVB3q_versionDiff",
+			"notice": "ccVB3q_notice",
+			"error": "ccVB3q_error",
+			"subtitle": "ccVB3q_subtitle",
+			"turnTitle": "ccVB3q_turnTitle",
+			"turnPreview": "ccVB3q_turnPreview",
+			"sectionHeading": "ccVB3q_sectionHeading",
+			"messageList": "ccVB3q_messageList",
+			"versionList": "ccVB3q_versionList"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx
@@ -1236,12 +1241,11 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 		//#region src/client/index.ts
-		/** Explicit value sources and slot declaration-order edges. */
+		/** Required services: slot declaration, Session Retain access, and navigation. */
 		const inject = [
 			"slots",
-			"conversation",
-			"connection",
-			"sessions"
+			"sessions",
+			"uiWorkspace"
 		];
 		/** Register both UI contributions over one per-session controller identity. */
 		function apply(ctx) {
@@ -1254,22 +1258,26 @@ window.__ModuleLoader__.load({
 				}
 				return controller;
 			};
+			ctx.effect(() => () => {
+				for (const controller of controllers.values()) controller.shutdown();
+				controllers.clear();
+			}, "message-edit: per-session controllers");
 			ctx.on("connection/reset", () => {
 				for (const controller of controllers.values()) controller.refreshIfLoaded();
 			});
-			ctx.slots.register({
+			ctx.slots.inject("conversation.view", () => ctx.slots.register({
 				name: "conversation.view",
 				id: "message-edit-timeline",
 				order: 15,
 				label: "Timeline",
 				inject: (sessionId) => controllerFor(sessionId).face
-			}, MessageEditTimelineView);
-			ctx.slots.register({
+			}, MessageEditTimelineView));
+			ctx.slots.inject("conversation.session.header.actions", () => ctx.slots.register({
 				name: "conversation.session.header.actions",
 				id: "message-edit-controls",
 				order: 15,
 				inject: (sessionId) => controllerFor(sessionId).face
-			}, MessageEditHeader);
+			}, MessageEditHeader));
 		}
 		//#endregion
 		exports.apply = apply;

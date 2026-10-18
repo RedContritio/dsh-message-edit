@@ -11,7 +11,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
 import { apply } from '../index.mjs'
 
@@ -64,7 +64,7 @@ async function fixture(t) {
     },
   })
   async function operation(body) {
-    const response = await transport.fetch(new Request('http://localhost/api/message-edit', { method: 'POST', body: JSON.stringify(body) }))
+    const response = await transport.fetch(new Request('http://localhost/api/message-edit', { method: 'POST', body: JSON.stringify(body) }), connection.browserPeer)
     const result = await response.json()
     assert.equal(response.status, 200, JSON.stringify(result))
     return ctx.agents.get(result.sessionId)

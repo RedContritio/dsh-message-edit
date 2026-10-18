@@ -32,8 +32,12 @@ test('built browser bundle loads on current module table, refreshes on turn end 
   const ctx = {
     effect: fn => { const dispose = fn(); effects.push(dispose); return async () => dispose?.() },
     on: () => {},
-    sessions: { list, binding: () => ({ session, eventSource: events }), open: () => {} },
-    slots: { register: (definition, component) => slots.push({ definition, component }) },
+    sessions: { list, binding: () => ({ session, eventSource: events }) },
+    uiWorkspace: { openSession: () => {} },
+    slots: {
+      inject: (_key, callback) => { callback() },
+      register: (definition, component) => slots.push({ definition, component }),
+    },
   }
   const messages = ['first', 'second'].map((id, index) => ({ key: String(index), chatNodeKey: `13:input-message${id}`, turn: index + 1, eventSeq: index * 10 + 1, blockIndex: 0, kind: 'user', text: 'same text', time: 1 }))
   const timeline = { sessionId: 'source', messages, retryableTurns: [], versions: [], undoStack: [], redoSessionIds: [] }
