@@ -193,6 +193,14 @@ function createOverlayHost(edit: MessageEditFace['edit']): {
   }
 }
 
+/** Own panel root for this header; never search a sibling Chat pane. */
+function conversationScope(anchor: HTMLElement): HTMLElement | undefined {
+  const root = anchor.closest<HTMLElement>('[data-phase]')
+    ?? anchor.closest('header')?.parentElement
+    ?? undefined
+  return root?.querySelector('[data-chat-flow]') === null ? undefined : root
+}
+
 /** Inject retry + edit icon buttons into each message action row. */
 export function InlineMessageEdit({
   messages,
@@ -213,8 +221,8 @@ export function InlineMessageEdit({
     let scheduled = false
 
     const sync = (): void => {
-      const scope = anchor.current?.closest('header')?.parentElement
-      if (!scope?.querySelector('[data-chat-flow]')) return
+      const scope = anchor.current === null ? undefined : conversationScope(anchor.current)
+      if (scope === undefined) return
       const actionRows = Array.from(scope.querySelectorAll<HTMLElement>('[data-chat-flow-key] [class*="actions"]'))
       const claimedEvents = new Set<number>()
       for (const row of actionRows) {

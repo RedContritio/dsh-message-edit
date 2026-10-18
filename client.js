@@ -440,15 +440,15 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var InlineMessageEdit_module_css_default = {
-			"title": "nkgUNq_title",
-			"overlay": "nkgUNq_overlay",
-			"input": "nkgUNq_input",
-			"footer": "nkgUNq_footer",
-			"pickerItemActive": "nkgUNq_pickerItemActive",
-			"iconButton": "nkgUNq_iconButton",
 			"picker": "nkgUNq_picker",
+			"pickerItemActive": "nkgUNq_pickerItemActive",
+			"input": "nkgUNq_input",
 			"pickerItem": "nkgUNq_pickerItem",
-			"panel": "nkgUNq_panel"
+			"iconButton": "nkgUNq_iconButton",
+			"overlay": "nkgUNq_overlay",
+			"panel": "nkgUNq_panel",
+			"title": "nkgUNq_title",
+			"footer": "nkgUNq_footer"
 		};
 		//#endregion
 		//#region src/client/InlineMessageEdit.tsx
@@ -632,6 +632,11 @@ window.__ModuleLoader__.load({
 				}
 			};
 		}
+		/** Own panel root for this header; never search a sibling Chat pane. */
+		function conversationScope(anchor) {
+			const root = anchor.closest("[data-phase]") ?? anchor.closest("header")?.parentElement ?? void 0;
+			return root?.querySelector("[data-chat-flow]") === null ? void 0 : root;
+		}
 		/** Inject retry + edit icon buttons into each message action row. */
 		function InlineMessageEdit({ messages, edit, retry }) {
 			const anchor = (0, react.useRef)(null);
@@ -643,8 +648,8 @@ window.__ModuleLoader__.load({
 				let frame;
 				let scheduled = false;
 				const sync = () => {
-					const scope = anchor.current?.closest("header")?.parentElement;
-					if (!scope?.querySelector("[data-chat-flow]")) return;
+					const scope = anchor.current === null ? void 0 : conversationScope(anchor.current);
+					if (scope === void 0) return;
 					const actionRows = Array.from(scope.querySelectorAll("[data-chat-flow-key] [class*=\"actions\"]"));
 					const claimedEvents = /* @__PURE__ */ new Set();
 					for (const row of actionRows) {
@@ -756,10 +761,10 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditHeader_module_css_default = {
+			"counter": "aqxRVa_counter",
 			"root": "aqxRVa_root",
 			"iconButton": "aqxRVa_iconButton",
-			"rerollButton": "aqxRVa_rerollButton",
-			"counter": "aqxRVa_counter"
+			"rerollButton": "aqxRVa_rerollButton"
 		};
 		//#endregion
 		//#region src/client/MessageEditHeader.tsx
@@ -834,55 +839,55 @@ window.__ModuleLoader__.load({
 			document.head.appendChild(tag);
 		}
 		var MessageEditTimelineView_module_css_default = {
-			"intro": "ccVB3q_intro",
-			"status": "ccVB3q_status",
-			"versionDot": "ccVB3q_versionDot",
-			"effectDepth": "ccVB3q_effectDepth",
-			"versionTitle": "ccVB3q_versionTitle",
-			"messageTime": "ccVB3q_messageTime",
-			"primaryButton": "ccVB3q_primaryButton",
-			"pathBadge": "ccVB3q_pathBadge",
-			"editor": "ccVB3q_editor",
-			"turnSection": "ccVB3q_turnSection",
-			"turnHeader": "ccVB3q_turnHeader",
-			"effectButtons": "ccVB3q_effectButtons",
-			"versionsPanel": "ccVB3q_versionsPanel",
-			"select": "ccVB3q_select",
-			"versionMeta": "ccVB3q_versionMeta",
-			"editorHint": "ccVB3q_editorHint",
-			"textarea": "ccVB3q_textarea",
-			"columns": "ccVB3q_columns",
-			"count": "ccVB3q_count",
-			"versionItem": "ccVB3q_versionItem",
-			"pageHeader": "ccVB3q_pageHeader",
-			"kindBadge": "ccVB3q_kindBadge",
 			"messageHeader": "ccVB3q_messageHeader",
-			"empty": "ccVB3q_empty",
-			"headerActions": "ccVB3q_headerActions",
-			"editorActions": "ccVB3q_editorActions",
-			"root": "ccVB3q_root",
-			"versionLine": "ccVB3q_versionLine",
-			"messageText": "ccVB3q_messageText",
-			"title": "ccVB3q_title",
-			"turnList": "ccVB3q_turnList",
-			"secondaryButton": "ccVB3q_secondaryButton",
-			"effectControls": "ccVB3q_effectControls",
-			"cascadeField": "ccVB3q_cascadeField",
-			"textButton": "ccVB3q_textButton",
-			"versionMain": "ccVB3q_versionMain",
-			"messageCard": "ccVB3q_messageCard",
-			"currentBadge": "ccVB3q_currentBadge",
-			"versionButton": "ccVB3q_versionButton",
-			"turnsPanel": "ccVB3q_turnsPanel",
-			"versionDiff": "ccVB3q_versionDiff",
-			"notice": "ccVB3q_notice",
-			"error": "ccVB3q_error",
-			"subtitle": "ccVB3q_subtitle",
-			"turnTitle": "ccVB3q_turnTitle",
 			"turnPreview": "ccVB3q_turnPreview",
-			"sectionHeading": "ccVB3q_sectionHeading",
+			"versionItem": "ccVB3q_versionItem",
 			"messageList": "ccVB3q_messageList",
-			"versionList": "ccVB3q_versionList"
+			"editorHint": "ccVB3q_editorHint",
+			"effectControls": "ccVB3q_effectControls",
+			"subtitle": "ccVB3q_subtitle",
+			"kindBadge": "ccVB3q_kindBadge",
+			"versionTitle": "ccVB3q_versionTitle",
+			"messageCard": "ccVB3q_messageCard",
+			"messageTime": "ccVB3q_messageTime",
+			"effectButtons": "ccVB3q_effectButtons",
+			"columns": "ccVB3q_columns",
+			"turnList": "ccVB3q_turnList",
+			"title": "ccVB3q_title",
+			"primaryButton": "ccVB3q_primaryButton",
+			"secondaryButton": "ccVB3q_secondaryButton",
+			"versionMain": "ccVB3q_versionMain",
+			"turnHeader": "ccVB3q_turnHeader",
+			"versionLine": "ccVB3q_versionLine",
+			"pageHeader": "ccVB3q_pageHeader",
+			"versionButton": "ccVB3q_versionButton",
+			"textButton": "ccVB3q_textButton",
+			"headerActions": "ccVB3q_headerActions",
+			"effectDepth": "ccVB3q_effectDepth",
+			"root": "ccVB3q_root",
+			"textarea": "ccVB3q_textarea",
+			"versionMeta": "ccVB3q_versionMeta",
+			"notice": "ccVB3q_notice",
+			"editorActions": "ccVB3q_editorActions",
+			"versionDot": "ccVB3q_versionDot",
+			"turnSection": "ccVB3q_turnSection",
+			"editor": "ccVB3q_editor",
+			"select": "ccVB3q_select",
+			"error": "ccVB3q_error",
+			"versionList": "ccVB3q_versionList",
+			"count": "ccVB3q_count",
+			"pathBadge": "ccVB3q_pathBadge",
+			"turnsPanel": "ccVB3q_turnsPanel",
+			"status": "ccVB3q_status",
+			"turnTitle": "ccVB3q_turnTitle",
+			"messageText": "ccVB3q_messageText",
+			"versionsPanel": "ccVB3q_versionsPanel",
+			"cascadeField": "ccVB3q_cascadeField",
+			"sectionHeading": "ccVB3q_sectionHeading",
+			"intro": "ccVB3q_intro",
+			"empty": "ccVB3q_empty",
+			"versionDiff": "ccVB3q_versionDiff",
+			"currentBadge": "ccVB3q_currentBadge"
 		};
 		//#endregion
 		//#region src/client/MessageEditTimelineView.tsx
