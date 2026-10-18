@@ -15,7 +15,7 @@
 
 ## 本地构建
 
-要求 Node 满足 DSH 的 engines，目标 DSH checkout 已安装依赖并生成 `lib` 产物。本次验证使用 Node 24.14.0、Cordis 4.0.5、TypeScript 6.0.3、tsdown 0.22.2。
+要求 Node 满足 DSH 的 engines，目标 DSH checkout 已安装依赖并生成 `lib` 产物。本次验证使用 Node 24.14.1、Cordis 4.0.5、TypeScript 6.0.3、tsdown 0.22.2。
 
 在插件目录执行：
 
